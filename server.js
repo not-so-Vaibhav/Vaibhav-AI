@@ -9,7 +9,12 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const knowledge = await readFile(path.join(__dirname, "knowledge.md"), "utf8");
+const knowledge1 = await readFile(path.join(__dirname, "knowledge.md"), "utf8");
+const knowledge2 = await readFile(path.join(__dirname, "knowledge2.md"), "utf8");
+const knowledge3 = await readFile(path.join(__dirname, "knowledge3.md"), "utf8");
+const atlasKnowledge = await readFile(path.join(__dirname, "atlas_additional_personal_knowledge.md"), "utf8");
+
+const knowledge = `${knowledge1}\n\n${knowledge2}\n\n${knowledge3}\n\n${atlasKnowledge}`;
 const app = express();
 const port = Number(process.env.PORT || 3000);
 const model = process.env.GEMINI_MODEL || "gemini-3.6-flash";
