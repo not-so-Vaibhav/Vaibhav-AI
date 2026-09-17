@@ -125,9 +125,9 @@ ${knowledge}`;
 async function generateWithFallback(contents) {
   const candidateModels = [
     process.env.GEMINI_MODEL || "gemini-3.6-flash",
-    "gemini-2.0-flash",
-    "gemini-1.5-flash",
-    "gemini-2.0-flash-lite",
+    "gemini-3.5-flash-lite",
+    "gemini-3.5-flash",
+    "gemini-3.6-pro",
   ];
 
   let lastError = null;
@@ -152,8 +152,8 @@ async function generateWithFallback(contents) {
       } catch (err) {
         lastError = err;
         console.warn(`[Gemini] ${m} attempt ${attempt + 1} failed: ${err.message}`);
-        // Small backoff before retrying
-        await new Promise((resolve) => setTimeout(resolve, 350 * (attempt + 1)));
+        // Small backoff before retrying or switching models
+        await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)));
       }
     }
   }
