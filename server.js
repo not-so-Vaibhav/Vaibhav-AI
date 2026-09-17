@@ -58,20 +58,60 @@ function requireClientKey(req, res, next) {
   return res.status(401).json({ error: "Invalid or missing x-api-key." });
 }
 
-function cleanHistory(history) {
-  if (!Array.isArray(history)) return [];
-  return history
-    .slice(-8)
-    .filter((item) => item && ["user", "assistant"].includes(item.role) && typeof item.content === "string")
-    .map((item) => ({ role: item.role, content: item.content.trim().slice(0, 2000) }))
-    .filter((item) => item.content.length > 0);
+// Build strictly valid Gemini contents array:
+// 1. Must start with role 'user'
+// 2. Must strictly alternate: user -> model -> user -> model -> user
+// 3. Filters out any error notices or greeting messages
+function formatGeminiContents(history, currentMessage) {
+  const contents = [];
+  let expectedRole = "user";
+
+  const rawHistory = Array.isArray(history) ? history : [];
+  
+  for (const item of rawHistory) {
+    if (!item || typeof item.content !== "string") continue;
+    const text = item.content.trim();
+    if (!text) continue;
+
+    // Ignore error messages and greeting messages
+    if (text.includes("having a moment connecting") || text.includes("I am **Atlas'AI**") || text.includes("I am Vaibhav Bariyar's portfolio assistant")) {
+      continue;
+    }
+
+    const itemRole = item.role === "assistant" || item.role === "bot" || item.role === "model" ? "model" : "user";
+
+    // Gemini multi-turn MUST start with user
+    if (contents.length === 0) {
+      if (itemRole === "user") {
+        contents.push({ role: "user", parts: [{ text: text.slice(0, 1500) }] });
+        expectedRole = "model";
+      }
+      continue;
+    }
+
+    // Only add if it strictly alternates
+    if (itemRole === expectedRole) {
+      contents.push({ role: itemRole, parts: [{ text: text.slice(0, 1500) }] });
+      expectedRole = expectedRole === "user" ? "model" : "user";
+    }
+  }
+
+  // Ensure last item in history wasn't already a user message before appending currentMessage
+  if (contents.length > 0 && contents[contents.length - 1].role === "user") {
+    contents.pop();
+  }
+
+  // Append current user message
+  contents.push({ role: "user", parts: [{ text: currentMessage }] });
+
+  return contents;
 }
 
 const instructions = `You are Atlas'AI, the digital headquarters intelligence assistant for Vaibhav Bariyar.
 Answer questions about Vaibhav using ONLY the verified context below.
 Be articulate, warm, concise, factual, and deeply knowledgeable about his engineering, startup (Solace), design, AI/ML projects, photography, and philosophy.
 Speak about Vaibhav in the third person unless asked otherwise.
-Never invent dates, credentials, or achievements. If you don't know, state that clearly.
+Never invent dates, credentials, or private personal data. If you don't know, state that politely.
 Solace is a student-focused peer-support platform, not clinical therapy.
 
 FORMATTING GUIDELINES:
@@ -88,22 +128,18 @@ app.get("/", (_req, res) => {
 
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
 
-app.post("/v1/chat", requireClientKey, async (req, res, next) => {
+app.post("/v1/chat", requireClientKey, async (req, res) => {
   try {
     const message = typeof req.body?.message === "string" ? req.body.message.trim() : "";
     if (!message || message.length > 2000) {
       return res.status(400).json({ error: "message must be between 1 and 2000 characters." });
     }
 
+    const contents = formatGeminiContents(req.body?.history, message);
+
     const response = await client.models.generateContent({
       model,
-      contents: [
-        ...cleanHistory(req.body?.history).map((item) => ({
-          role: item.role === "assistant" ? "model" : "user",
-          parts: [{ text: item.content }],
-        })),
-        { role: "user", parts: [{ text: message }] },
-      ],
+      contents,
       config: {
         systemInstruction: instructions,
         maxOutputTokens: 2048,
@@ -111,20 +147,23 @@ app.post("/v1/chat", requireClientKey, async (req, res, next) => {
       },
     });
 
-    const answer = response.text?.trim();
-    if (!answer) throw new Error("Gemini returned an empty response.");
+    const answer = response.text?.trim() || "I'm here to help with questions about Vaibhav's work, projects, and background. Feel free to ask about his engineering or startup journey!";
     return res.json({ answer, model });
   } catch (error) {
-    return next(error);
+    console.error("Chat generation error:", error);
+    return res.status(500).json({
+      error: error?.message || "The assistant could not respond right now."
+    });
   }
 });
 
 app.use((error, _req, res, _next) => {
-  console.error(error);
+  console.error("Express unhandled error:", error);
   const status = error?.status && error.status < 500 ? error.status : 500;
-  res.status(status).json({ error: status === 500 ? "The assistant could not respond right now." : error.message });
+  res.status(status).json({ error: error.message || "An unexpected error occurred." });
 });
 
 app.listen(port, () => console.log(`Vaibhav chatbot API listening on port ${port}`));
+
 
 
