@@ -17,7 +17,6 @@ const atlasKnowledge = await readFile(path.join(__dirname, "atlas_additional_per
 const knowledge = `${knowledge1}\n\n${knowledge2}\n\n${knowledge3}\n\n${atlasKnowledge}`;
 const app = express();
 const port = Number(process.env.PORT || 3000);
-const model = process.env.GEMINI_MODEL || "gemini-3.6-flash";
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || "*")
   .split(",")
   .map((origin) => origin.trim())
@@ -122,6 +121,46 @@ FORMATTING GUIDELINES:
 VERIFIED CONTEXT
 ${knowledge}`;
 
+// Resilient generation with model fallback & exponential retry against 503/429 spikes
+async function generateWithFallback(contents) {
+  const candidateModels = [
+    process.env.GEMINI_MODEL || "gemini-3.6-flash",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+    "gemini-2.0-flash-lite",
+  ];
+
+  let lastError = null;
+
+  for (const m of candidateModels) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const response = await client.models.generateContent({
+          model: m,
+          contents,
+          config: {
+            systemInstruction: instructions,
+            maxOutputTokens: 2048,
+            temperature: 0.3,
+          },
+        });
+
+        const answer = response.text?.trim();
+        if (answer) {
+          return { answer, model: m };
+        }
+      } catch (err) {
+        lastError = err;
+        console.warn(`[Gemini] ${m} attempt ${attempt + 1} failed: ${err.message}`);
+        // Small backoff before retrying
+        await new Promise((resolve) => setTimeout(resolve, 350 * (attempt + 1)));
+      }
+    }
+  }
+
+  throw lastError || new Error("All AI models were temporarily unavailable.");
+}
+
 app.get("/", (_req, res) => {
   res.json({ name: "Vaibhav Personal Chatbot API", status: "ok", chat_endpoint: "/v1/chat" });
 });
@@ -136,19 +175,9 @@ app.post("/v1/chat", requireClientKey, async (req, res) => {
     }
 
     const contents = formatGeminiContents(req.body?.history, message);
+    const result = await generateWithFallback(contents);
 
-    const response = await client.models.generateContent({
-      model,
-      contents,
-      config: {
-        systemInstruction: instructions,
-        maxOutputTokens: 2048,
-        temperature: 0.3,
-      },
-    });
-
-    const answer = response.text?.trim() || "I'm here to help with questions about Vaibhav's work, projects, and background. Feel free to ask about his engineering or startup journey!";
-    return res.json({ answer, model });
+    return res.json(result);
   } catch (error) {
     console.error("Chat generation error:", error);
     return res.status(500).json({
@@ -164,6 +193,7 @@ app.use((error, _req, res, _next) => {
 });
 
 app.listen(port, () => console.log(`Vaibhav chatbot API listening on port ${port}`));
+
 
 
 
