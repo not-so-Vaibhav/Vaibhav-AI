@@ -17,7 +17,7 @@ const atlasKnowledge = await readFile(path.join(__dirname, "atlas_additional_per
 const knowledge = `${knowledge1}\n\n${knowledge2}\n\n${knowledge3}\n\n${atlasKnowledge}`;
 const app = express();
 const port = Number(process.env.PORT || 3000);
-const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+const model = process.env.GEMINI_MODEL || "gemini-3.6-flash";
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || "*")
   .split(",")
   .map((origin) => origin.trim())
@@ -107,9 +107,6 @@ app.post("/v1/chat", requireClientKey, async (req, res, next) => {
       config: {
         systemInstruction: instructions,
         maxOutputTokens: 2048,
-        thinkingConfig: {
-          thinkingBudget: 0,
-        },
         temperature: 0.3,
       },
     });
@@ -129,4 +126,5 @@ app.use((error, _req, res, _next) => {
 });
 
 app.listen(port, () => console.log(`Vaibhav chatbot API listening on port ${port}`));
+
 
